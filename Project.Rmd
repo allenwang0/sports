@@ -1,0 +1,268 @@
+---
+title: "Rosters"
+author: "Allen Wang"
+date: "2023-03-07"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+roster <- read.csv("/Users/allenwang/Downloads/allgames.csv")
+prev <- read.csv("/Users/allenwang/Downloads/previous_season_results.csv")
+season <- read.csv("/Users/allenwang/Downloads/season_match_up.csv")
+predictions <- read.csv("/Users/allenwang/Downloads/predictions.csv")
+```
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+library(ggplot2)
+library(dplyr)
+library(corrr)
+library(ggcorrplot)
+library(factoextra)
+library(tidyverse)
+library(cluster)
+library(ggfortify)
+library(randomForest)
+library(tidyr)
+library(caret)
+library(pROC)
+```
+
+
+
+# Data Summary
+
+```{r}
+summary(predictions)
+```
+
+```{r, error = FALSE, message = FALSE}
+ggplot(predictions, aes(x=predicted.student.score)) + 
+  geom_histogram()
+```
+
+
+
+
+```{r}
+head(predictions)
+```
+
+Based on just predicted scores, we will choose students 129, 461, 340, 521, 660, 791, 971, 760, 202, 359, who have the highest predicted scores based on the linear regression model from part 1.
+
+# Logistic model on expected scores
+
+## Training
+```{r}
+set.seed(888)
+
+split2 <- sample(c(TRUE, FALSE), nrow(prev), replace=TRUE, prob=c(0.7,0.3))
+
+train2 <- prev[split2, ]
+test2 <- prev[!split2, ]
+```
+
+
+```{r}
+log <- glm(winning.team ~ team.1.score + team.2.score, data = train2, family = binomial)
+```
+
+
+```{r}
+summary(log)
+```
+
+
+## Testing
+```{r}
+pred <- predict(log, newdata = test2, type = "response")
+```
+
+```{r}
+pred_class <- ifelse(pred > 0.5, "team1", "team2")
+
+# Compute confusion matrix
+confusion <- table(test2$winning.team, pred_class)
+```
+
+```{r}
+confusion
+```
+
+```{r}
+accuracy <- sum(diag(confusion))/sum(confusion)
+cat("Accuracy:", round(accuracy, 2), "\n")
+```
+
+```{r}
+precision <- confusion[1,1]/sum(confusion[,1])
+cat("Precision:", round(precision, 2), "\n")
+```
+
+```{r}
+recall <- confusion[1,1]/sum(confusion[1,])
+cat("Recall:", round(recall, 2), "\n")
+```
+
+```{r}
+f1 <- 2 * precision * recall / (precision + recall)
+cat("F1 score:", round(f1, 2), "\n")
+```
+
+```{r}
+roc_obj <- roc(test2$winning.team, pred)
+auc <- auc(roc_obj)
+cat("AUC-ROC:", round(auc, 2), "\n")
+```
+
+
+
+# Player analysis
+
+```{r}
+season <- as.data.frame(lapply(season, as.numeric))
+```
+
+```{r}
+season <- select(season, -1) 
+```
+
+
+```{r}
+season <- t(season)
+```
+
+```{r}
+rownames(season) <- NULL
+```
+
+```{r}
+season <- data.frame(season)
+```
+
+
+```{r}
+season$gamenumber <- seq.int(nrow(season))
+```
+
+```{r}
+colnames(season) <- c("score", "gamenumber")
+```
+
+
+```{r}
+studentgames <- data.frame(matrix(0, nrow = 1000, ncol = 20))
+
+colnames(studentgames) <- paste0("Game", 1:20)
+```
+
+
+```{r}
+pred_probs <- apply(season, 2, function(x) {
+  predict(log, newdata = data.frame(team.1.score = predictions$predicted.student.score, team.2.score = x), type = "response")
+})
+
+studentgames[] <- pred_probs
+```
+
+
+
+# New model to predict number of wins
+
+```{r}
+set.seed(8)
+
+split3 <- sample(c(TRUE, FALSE), nrow(studentgames), replace=TRUE, prob=c(0.7,0.3))
+
+train3 <- studentgames[split3, ]
+test3 <- studentgames[!split3, ]
+```
+
+
+```{r}
+log2 <- glm(winning.team ~ team.1.score + team.2.score, data = train2, family = binomial)
+```
+
+
+```{r}
+studentgames$avg <- rowMeans(studentgames)
+```
+
+```{r}
+studentgames$expectedwins <- 20*studentgames$avg
+```
+
+
+```{r}
+studentgames$student <- seq.int(nrow(studentgames))
+```
+
+```{r}
+predictions$expectedwins <- studentgames$expectedwins
+```
+
+
+```{r}
+predictions <- predictions %>%
+  arrange(desc(expectedwins))
+```
+
+
+
+```{r}
+top10 <- predictions %>%
+  slice(1:10)
+
+top10
+```
+
+Using logistic regression, we calculated a new set of 10 students to maximize the expected value for winning percentage.
+791, 971, 631, 129, 691, 526, 486, 271, 171, 371.
+
+129, 461, 340, 521, 660, 791, 971, 760, 202, 359
+
+
+
+# Visualizations
+
+```{r, error = FALSE, message = FALSE}
+ggplot(predictions, aes(x=expectedwins)) + 
+  geom_histogram() + ggtitle("Histogram of expected player wins") + xlab("number of expected wins")
+```
+
+
+
+```{r}
+ggplot(predictions, aes(x=predicted.student.score, y=expectedwins, color=overall.fitness.score)) + 
+    geom_point() + xlab("Predicted Score") + ylab("Number of Expected Wins") + ggtitle("Predicted Score vs. Expected Wins")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
